@@ -1,35 +1,54 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
-	"p2p/core" // Replace with your actual module name
+	"p2p/core"
+	"p2p/crypto"
 )
 
 func main() {
-	// 1. Create the Genesis Block (Block 0)
-	genesisTx := core.NewTransaction([]byte("Genesis Tx"), nil, 0)
-	genesisBlock := core.NewBlock(nil, 0, []*core.Transaction{genesisTx})
+	// 1. Create Identities
+	// Alice is the legitimate user
+	alicePrivKey, _ := crypto.GeneratePrivateKey()
+	alicePubKey := alicePrivKey.PublicKey()
 
-	hasher := core.BlockHasher{}
-	hash1, _ := genesisBlock.Hash(hasher)
+	// Bob is the receiver (just an address for now)
+	// bobPrivKey, _ := crypto.GeneratePrivateKey()
 
-	fmt.Printf("Block 0 Hash: %s\n", hex.EncodeToString(hash1))
+	fmt.Printf("Alice Public Key: %s\n", alicePubKey.Address())
 
-	// 2. Create Block 1 (Linked to Block 0)
-	tx2 := core.NewTransaction([]byte("Bob sends 5 coins to Alice"), nil, 1)
-	block1 := core.NewBlock(hash1, 1, []*core.Transaction{tx2})
+	// 2. Create a Transaction
+	msg := []byte("Send 100 Tokens to Bob")
+	tx := core.NewTransaction(msg, *alicePubKey, 0)
 
-	hash2, _ := block1.Hash(hasher)
-	fmt.Printf("Block 1 Hash: %s\n", hex.EncodeToString(hash2))
+	// 3. Alice Signs the Transaction
+	// Without this step, the network should reject it
+	if err := tx.Sign(alicePrivKey); err != nil {
+		panic(err)
+	}
+	fmt.Println("Transaction Signed by Alice.")
 
-	// 3. Verify the Link
-	fmt.Printf("Block 1 PrevHash: %s\n", hex.EncodeToString(block1.Header.PrevBlockHash))
-
-	// Quick integrity check
-	if hex.EncodeToString(block1.Header.PrevBlockHash) == hex.EncodeToString(hash1) {
-		fmt.Println("SUCCESS: The chain is linked correctly!")
+	// 4. Verify the Transaction (Network Side)
+	if err := tx.Verify(); err != nil {
+		fmt.Printf("ERROR: Verification Failed: %s\n", err)
 	} else {
-		fmt.Println("FAIL: Broken chain.")
+		fmt.Println("SUCCESS: Transaction Signature Valid!")
+	}
+
+	fmt.Println("--- ATTACK SCENARIO ---")
+
+	// 5. Eve tries to tamper with the data
+	// Eve intercepts the transaction and changes the amount
+	tx.Data = []byte("Send 100000 Tokens to Bob")
+
+	fmt.Println("Eve changed the data to: Send 100000 Tokens to Bob")
+
+	// 6. Verify again
+	// The signature was created for "Send 100...", but the data is now "Send 100000..."
+	// The math should fail.
+	if err := tx.Verify(); err != nil {
+		fmt.Printf("SUCCESS: Tampered transaction rejected! Error: %s\n", err)
+	} else {
+		fmt.Println("FAIL: The network accepted a hacked transaction.")
 	}
 }
