@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sync"
 )
@@ -30,7 +31,8 @@ type TCPTransport struct {
 	// mu is a Mutex (Lock).
 	// Because multiple peers might connect at the exact same time,
 	// we need to lock the map before adding/removing to prevent crashes.
-	mu sync.RWMutex
+	mu      sync.RWMutex
+	decoder Decoder
 }
 
 // NewTCPTransport is the constructor.
@@ -39,6 +41,7 @@ func NewTCPTransport(addr string) *TCPTransport {
 		listenAddress: addr,
 		rpcCh:         make(chan RPC),
 		peers:         make(map[net.Addr]*TCPPeer),
+		decoder:       GOBDecoder{},
 	}
 }
 
@@ -94,8 +97,35 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	t.peers[conn.RemoteAddr()] = peer
 	t.mu.Unlock()
 
-	// TODO: Read messages from this peer
-	// We will implement the reading logic in the next part.
+	// --- NEW: The Read Loop ---
+	// We defer closing the connection. If the loop breaks (error), we hang up.
+	defer func() {
+		fmt.Printf("Dropping peer: %s\n", conn.RemoteAddr())
+		conn.Close()
+	}()
+
+	for {
+		rpc := RPC{} // Create an empty envelope
+
+		// 1. Read from the wire into the envelope
+		err := t.decoder.Decode(conn, &rpc)
+
+		if err == io.EOF {
+			// This means the other side closed the connection
+			return
+		}
+		if err != nil {
+			fmt.Printf("TCP Read Error: %s\n", err)
+			continue
+		}
+
+		// 2. Tag the message so we know who sent it
+		rpc.From = NetAddr(conn.RemoteAddr().String())
+
+		// 3. Send it to the main channel for the Server to process
+		// This will block here until the Server reads it!
+		t.rpcCh <- rpc
+	}
 }
 
 // The Logic Flow
