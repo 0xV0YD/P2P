@@ -45,10 +45,26 @@ func NewTCPTransport(addr string) *TCPTransport {
 	}
 }
 
+func (t *TCPTransport) Connect(tr Transport) error {
+	addr := string(tr.Addr())
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	go t.handleConn(conn, true)
+	return nil
+}
+
 // Consume implements the Transport interface.
 // It just gives the channel to the caller (read-only access).
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcCh
+}
+
+// Addr returns the address this node is listening on
+func (t *TCPTransport) Addr() NetAddr {
+	return NetAddr(t.listenAddress)
 }
 
 func (t *TCPTransport) listenAndAccept() error {
